@@ -592,15 +592,31 @@ def train():
         tf.compat.v1.set_random_seed(args.random_seed)
 
     # Load data
-
     if args.dataset_type == 'llff':
-        images, poses, bds, render_poses, i_test = load_llff_data(args.datadir, args.factor,
-                                                                  recenter=True, bd_factor=.75,
-                                                                  spherify=args.spherify)
+        # Start a new run to track this script
+        run = wandb.init(
+            project=f'{args.wandbproject}',
+            entity=f'{args.wandbentity}',
+            name=f'{args.expname}',
+            job_type='load_llff_dataset',
+        )
+        artifact = wandb.Artifact(
+            f'{os.path.basename(args.datadir)}-dataset',
+            type='dataset'
+        )
+        artifact.add_dir(args.datadir)
+        remote_artifact = run.use_artifact(artifact)
+        wandb_datadir = remote_artifact.download(root=None)
+        images, poses, bds, render_poses, i_test = load_llff_data(
+            wandb_datadir, 
+            args.factor,
+            recenter=True, 
+            bd_factor=.75,
+            spherify=args.spherify
+        )
         hwf = poses[0, :3, -1]
         poses = poses[:, :3, :4]
-        print('Loaded llff', images.shape,
-              render_poses.shape, hwf, args.datadir)
+        print('Loaded llff', images.shape, render_poses.shape, hwf, wandb_datadir)
         if not isinstance(i_test, list):
             i_test = [i_test]
 
@@ -620,6 +636,19 @@ def train():
             near = 0.
             far = 1.
         print('NEAR FAR', near, far)
+        wandb.config.update({
+            'dataset_type':args.dataset_type,
+            'testskip':args.testskip,
+            'factor':args.factor,
+            'no_ndc':args.no_ndc,
+            'lindisp':args.lindisp,
+            'spherify':args.spherify,
+            'llffhold':args.llffhold,
+            'near':near,
+            'far':far,
+        })
+        # Add a file to the artifact's contents
+        run.finish()
 
     elif args.dataset_type == 'blender':
         images, poses, render_poses, hwf, i_split = load_blender_data(
@@ -681,7 +710,8 @@ def train():
         # Set the project where this run will be logged
         project=f'{args.wandbproject}',
         entity=f'{args.wandbentity}',
-        name=f'{args.expname}'
+        name=f'{args.expname}',
+        job_type='train'
     )
     wandb.config.update(args)
 

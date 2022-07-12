@@ -7,3 +7,7 @@
 *.dae
 data/*
 logs/*
+
+# wandb
+wandb/*
+artifacts/*
