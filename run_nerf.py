@@ -13,6 +13,7 @@ from load_llff import load_llff_data
 from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
 
+import wandb
 
 tf.compat.v1.enable_eager_execution()
 
@@ -470,7 +471,15 @@ def config_parser():
     parser.add_argument("--datadir", type=str,
                         default='./data/llff/fern', help='input data directory')
 
+    # wandb options
+    parser.add_argument("--wandbproject", type=str,
+                        default='plank-hyundong', help='wandb project')
+    parser.add_argument("--wandbentity", type=str,
+                        default='plank-hyundong', help='wandb entity')
+
     # training options
+    parser.add_argument("--maxiter", type=int, default=100000,
+                        help='maximum iteration')
     parser.add_argument("--netdepth", type=int, default=8,
                         help='layers in network')
     parser.add_argument("--netwidth", type=int, default=256,
@@ -562,11 +571,11 @@ def config_parser():
                         help='frequency of console printout and metric loggin')
     parser.add_argument("--i_img",     type=int, default=500,
                         help='frequency of tensorboard image logging')
-    parser.add_argument("--i_weights", type=int, default=10000,
+    parser.add_argument("--i_weights", type=int, default=1000,
                         help='frequency of weight ckpt saving')
-    parser.add_argument("--i_testset", type=int, default=50000,
+    parser.add_argument("--i_testset", type=int, default=5000,
                         help='frequency of testset saving')
-    parser.add_argument("--i_video",   type=int, default=50000,
+    parser.add_argument("--i_video",   type=int, default=5000,
                         help='frequency of render_poses video saving')
 
     return parser
@@ -667,9 +676,17 @@ def train():
         with open(f, 'w') as file:
             file.write(open(args.config, 'r').read())
 
+    # Start a new run to track this script
+    wandb.init(
+        # Set the project where this run will be logged
+        project=f'{args.wandbproject}',
+        entity=f'{args.wandbentity}',
+        name=f'{args.expname}'
+    )
+    wandb.config.update(args)
+
     # Create nerf model
-    render_kwargs_train, render_kwargs_test, start, grad_vars, models = create_nerf(
-        args)
+    render_kwargs_train, render_kwargs_test, start, grad_vars, models = create_nerf(args)
 
     bds_dict = {
         'near': tf.cast(near, tf.float32),
@@ -698,7 +715,6 @@ def train():
         print('Done rendering', testsavedir)
         imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'),
                          to8b(rgbs), fps=30, quality=8)
-
         return
 
     # Create optimizer
@@ -743,7 +759,7 @@ def train():
         print('done')
         i_batch = 0
 
-    N_iters = 1000000
+    N_iters = args.maxiter
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -755,10 +771,10 @@ def train():
     writer.set_as_default()
 
     for i in range(start, N_iters):
+        
         time0 = time.time()
 
         # Sample random ray batch
-
         if use_batching:
             # Random over all images
             batch = rays_rgb[i_batch:i_batch+N_rand]  # [B, 2+1, 3*?]
@@ -772,7 +788,6 @@ def train():
             if i_batch >= rays_rgb.shape[0]:
                 np.random.shuffle(rays_rgb)
                 i_batch = 0
-
         else:
             # Random from one image
             img_i = np.random.choice(i_train)
@@ -802,21 +817,20 @@ def train():
                 batch_rays = tf.stack([rays_o, rays_d], 0)
                 target_s = tf.gather_nd(target, select_inds)
 
-        #####  Core optimization loop  #####
-
+        # Core optimization loop
         with tf.GradientTape() as tape:
-
+            
             # Make predictions for color, disparity, accumulated opacity.
             rgb, disp, acc, extras = render(
                 H, W, focal, chunk=args.chunk, rays=batch_rays,
                 verbose=i < 10, retraw=True, **render_kwargs_train)
-
+            
             # Compute MSE loss between predicted and true RGB.
             img_loss = img2mse(rgb, target_s)
             trans = extras['raw'][..., -1]
             loss = img_loss
             psnr = mse2psnr(img_loss)
-
+            
             # Add MSE loss for coarse-grained model
             if 'rgb0' in extras:
                 img_loss0 = img2mse(extras['rgb0'], target_s)
@@ -826,12 +840,10 @@ def train():
         gradients = tape.gradient(loss, grad_vars)
         optimizer.apply_gradients(zip(gradients, grad_vars))
 
+        # Training step end
         dt = time.time()-time0
-
-        #####           end            #####
-
+        
         # Rest is logging
-
         def save_weights(net, prefix, i):
             path = os.path.join(
                 basedir, expname, '{}_{:06d}.npy'.format(prefix, i))
@@ -843,24 +855,24 @@ def train():
                 save_weights(models[k], k, i)
 
         if i % args.i_video == 0 and i > 0:
-
-            rgbs, disps = render_path(
-                render_poses, hwf, args.chunk, render_kwargs_test)
+            rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
             print('Done, saving', rgbs.shape, disps.shape)
-            moviebase = os.path.join(
-                basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
-            imageio.mimwrite(moviebase + 'rgb.mp4',
-                             to8b(rgbs), fps=30, quality=8)
-            imageio.mimwrite(moviebase + 'disp.mp4',
-                             to8b(disps / np.max(disps)), fps=30, quality=8)
+            moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
+            imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=30, quality=8)
+            wandb.log({
+                f'video_rgb' :wandb.Video(moviebase + 'rgb.mp4', fps=30, format="mp4"),
+                f'video_disp':wandb.Video(moviebase + 'disp.mp4', fps=30, format="mp4"),
+            }, step=int(i))
 
             if args.use_viewdirs:
                 render_kwargs_test['c2w_staticcam'] = render_poses[0][:3, :4]
-                rgbs_still, _ = render_path(
-                    render_poses, hwf, args.chunk, render_kwargs_test)
+                rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
                 render_kwargs_test['c2w_staticcam'] = None
-                imageio.mimwrite(moviebase + 'rgb_still.mp4',
-                                 to8b(rgbs_still), fps=30, quality=8)
+                imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
+                wandb.log({
+                    f'video_still' :wandb.Video(moviebase + 'rgb_still.mp4', fps=30, format="mp4"),
+                }, step=int(i))
 
         if i % args.i_testset == 0 and i > 0:
             testsavedir = os.path.join(
@@ -868,13 +880,18 @@ def train():
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', poses[i_test].shape)
             render_path(poses[i_test], hwf, args.chunk, render_kwargs_test,
-                        gt_imgs=images[i_test], savedir=testsavedir)
+                        gt_imgs=images[i_test], 
+                        savedir=testsavedir)
             print('Saved test set')
 
         if i % args.i_print == 0 or i < 10:
-
             print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
             print('iter time {:.05f}'.format(dt))
+            wandb.log({
+                f'psnr' :psnr.numpy(),
+                f'loss' :loss.numpy(),
+                f'iter_time' :dt
+            }, step=int(i))
             with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_print):
                 tf.contrib.summary.scalar('loss', loss)
                 tf.contrib.summary.scalar('psnr', psnr)
@@ -882,47 +899,38 @@ def train():
                 if args.N_importance > 0:
                     tf.contrib.summary.scalar('psnr0', psnr0)
 
-            if i % args.i_img == 0:
+        if i % args.i_img == 0:
+            # Log a rendered validation view to Tensorboard
+            img_i = np.random.choice(i_val)
+            target = images[img_i]
+            pose = poses[img_i, :3, :4]
 
-                # Log a rendered validation view to Tensorboard
-                img_i = np.random.choice(i_val)
-                target = images[img_i]
-                pose = poses[img_i, :3, :4]
+            rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose,
+                                            **render_kwargs_test)
 
-                rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose,
-                                                **render_kwargs_test)
+            psnr = mse2psnr(img2mse(rgb, target))
+            
+            # Save out the validation image for Tensorboard-free monitoring
+            testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
+            if i==0:
+                os.makedirs(testimgdir, exist_ok=True)
+            imageio.imwrite(os.path.join(testimgdir, '{:06d}.png'.format(i)), to8b(rgb))
 
-                psnr = mse2psnr(img2mse(rgb, target))
-                
-                # Save out the validation image for Tensorboard-free monitoring
-                testimgdir = os.path.join(basedir, expname, 'tboard_val_imgs')
-                if i==0:
-                    os.makedirs(testimgdir, exist_ok=True)
-                imageio.imwrite(os.path.join(testimgdir, '{:06d}.png'.format(i)), to8b(rgb))
+            with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
+                tf.contrib.summary.image('disp', disp[tf.newaxis, ..., tf.newaxis])
+                tf.contrib.summary.image('acc', acc[tf.newaxis, ..., tf.newaxis])
+                tf.contrib.summary.scalar('psnr_holdout', psnr)
+                tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
 
+            if args.N_importance > 0:
                 with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-
-                    tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
-                    tf.contrib.summary.image(
-                        'disp', disp[tf.newaxis, ..., tf.newaxis])
-                    tf.contrib.summary.image(
-                        'acc', acc[tf.newaxis, ..., tf.newaxis])
-
-                    tf.contrib.summary.scalar('psnr_holdout', psnr)
-                    tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
-
-                if args.N_importance > 0:
-
-                    with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                        tf.contrib.summary.image(
-                            'rgb0', to8b(extras['rgb0'])[tf.newaxis])
-                        tf.contrib.summary.image(
-                            'disp0', extras['disp0'][tf.newaxis, ..., tf.newaxis])
-                        tf.contrib.summary.image(
-                            'z_std', extras['z_std'][tf.newaxis, ..., tf.newaxis])
+                    tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
+                    tf.contrib.summary.image('disp0', extras['disp0'][tf.newaxis, ..., tf.newaxis])
+                    tf.contrib.summary.image('z_std', extras['z_std'][tf.newaxis, ..., tf.newaxis])
 
         global_step.assign_add(1)
-
+    wandb.finish()
 
 if __name__ == '__main__':
     train()
