@@ -607,6 +607,7 @@ def preprocessing(args):
         )
         artifact_dataset.add_dir(args.datadir)
         remote_artifact = run_load.log_artifact(artifact_dataset)
+        remote_artifact.wait()
         run_load.finish()
 
         # Start a new run to track this script
@@ -730,7 +731,8 @@ def preprocessing(args):
     # create a wandb.Table() with corresponding columns
     table = wandb.Table(data=table_data, columns=table_columns)
     artifact_preprocessing.add_table(table)
-    remote_artifact = run_preprocess.log_artifact(artifact_preprocessing)
+    run_preprocess.log_artifact(artifact_preprocessing)
+    artifact_preprocessing.wait()
     run_preprocess.finish()
 
     return images, poses, near, far, H, W, focal, i_train, i_val, i_test
