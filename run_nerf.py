@@ -726,9 +726,9 @@ def preprocessing(args):
                 elif column == 'focal':
                     row.append(focal)
                 elif column == 'pose':
-                    row.append(poses[i].tolist())
+                    row.append(f'{poses[i].tolist()}')
                 elif column == 'render_pose':
-                    row.append(render_poses[i].tolist())
+                    row.append(f'{render_poses[i].tolist()}')
                 else:
                     raise ValueError()
             table_data.append(row)
