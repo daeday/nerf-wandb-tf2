@@ -730,7 +730,7 @@ def preprocessing(args):
             table_data.append(row)
     # create a wandb.Table() with corresponding columns
     table = wandb.Table(data=table_data, columns=table_columns)
-    artifact_preprocessing.add_table(table)
+    artifact_preprocessing.add(table, "preprocessing_result")
     run_preprocess.log_artifact(artifact_preprocessing)
     artifact_preprocessing.wait()
     run_preprocess.finish()
