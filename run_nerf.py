@@ -714,7 +714,7 @@ def preprocessing(args):
             for column in table_columns:
                 row = []
                 if column == 'image':
-                    row.append(wandb.Image(images[i]), caption=f'idx: {i}')
+                    row.append(wandb.Image(images[i], caption=f'idx: {i}'))
                 elif column == 'split':
                     row.append(s)
                 elif column == 'H':
