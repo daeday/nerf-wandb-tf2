@@ -195,18 +195,17 @@ def render_rays(ray_batch,
         mids = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
         upper = tf.concat([mids, z_vals[..., -1:]], -1)
         lower = tf.concat([z_vals[..., :1], mids], -1)
+        
         # stratified samples in those intervals
         t_rand = tf.random.uniform(z_vals.shape)
         z_vals = lower + (upper - lower) * t_rand
 
     # Points in space to evaluate model at.
-    pts = rays_o[..., None, :] + rays_d[..., None, :] * \
-        z_vals[..., :, None]  # [N_rays, N_samples, 3]
+    pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]  # [N_rays, N_samples, 3]
 
     # Evaluate model at each point.
     raw = network_query_fn(pts, viewdirs, network_fn)  # [N_rays, N_samples, 4]
-    rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
-        raw, z_vals, rays_d)
+    rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d)
 
     if N_importance > 0:
         rgb_map_0, disp_map_0, acc_map_0 = rgb_map, disp_map, acc_map
@@ -214,20 +213,17 @@ def render_rays(ray_batch,
         # Obtain additional integration times to evaluate based on the weights
         # assigned to colors in the coarse model.
         z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
-        z_samples = sample_pdf(
-            z_vals_mid, weights[..., 1:-1], N_importance, det=(perturb == 0.))
+        z_samples = sample_pdf(z_vals_mid, weights[..., 1:-1], N_importance, det=(perturb == 0.))
         z_samples = tf.stop_gradient(z_samples)
 
         # Obtain all points to evaluate color, density at.
         z_vals = tf.sort(tf.concat([z_vals, z_samples], -1), -1)
-        pts = rays_o[..., None, :] + rays_d[..., None, :] * \
-            z_vals[..., :, None]  # [N_rays, N_samples + N_importance, 3]
+        pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]  # [N_rays, N_samples + N_importance, 3]
 
         # Make predictions with network_fine.
         run_fn = network_fn if network_fine is None else network_fine
         raw = network_query_fn(pts, viewdirs, run_fn)
-        rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(
-            raw, z_vals, rays_d)
+        rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d)
 
     ret = {'rgb_map': rgb_map, 'disp_map': disp_map, 'acc_map': acc_map}
     if retraw:
@@ -385,30 +381,43 @@ def create_nerf(args):
     embeddirs_fn = None
     if args.use_viewdirs:
         embeddirs_fn, input_ch_views = get_embedder(
-            args.multires_views, args.i_embed)
+            args.multires_views, args.i_embed
+        )
     output_ch = 4
     skips = [4]
     model = init_nerf_model(
-        D=args.netdepth, W=args.netwidth,
-        input_ch=input_ch, output_ch=output_ch, skips=skips,
-        input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs)
+        D=args.netdepth, 
+        W=args.netwidth,
+        input_ch=input_ch, 
+        output_ch=output_ch, 
+        skips=skips,
+        input_ch_views=input_ch_views, 
+        use_viewdirs=args.use_viewdirs
+    )
     grad_vars = model.trainable_variables
     models = {'model': model}
 
     model_fine = None
     if args.N_importance > 0:
         model_fine = init_nerf_model(
-            D=args.netdepth_fine, W=args.netwidth_fine,
-            input_ch=input_ch, output_ch=output_ch, skips=skips,
-            input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs)
+            D=args.netdepth_fine, 
+            W=args.netwidth_fine,
+            input_ch=input_ch, 
+            output_ch=output_ch, 
+            skips=skips,
+            input_ch_views=input_ch_views, 
+            use_viewdirs=args.use_viewdirs
+        )
         grad_vars += model_fine.trainable_variables
         models['model_fine'] = model_fine
 
-    def network_query_fn(inputs, viewdirs, network_fn): return run_network(
-        inputs, viewdirs, network_fn,
-        embed_fn=embed_fn,
-        embeddirs_fn=embeddirs_fn,
-        netchunk=args.netchunk)
+    def network_query_fn(inputs, viewdirs, network_fn): 
+        return run_network(
+            inputs, viewdirs, network_fn,
+            embed_fn=embed_fn,
+            embeddirs_fn=embeddirs_fn,
+            netchunk=args.netchunk
+        )
 
     render_kwargs_train = {
         'network_query_fn': network_query_fn,
@@ -571,7 +580,7 @@ def config_parser():
                         help='frequency of console printout and metric loggin')
     parser.add_argument("--i_img",     type=int, default=500,
                         help='frequency of tensorboard image logging')
-    parser.add_argument("--i_weights", type=int, default=1000,
+    parser.add_argument("--i_weights", type=int, default=5000,
                         help='frequency of weight ckpt saving')
     parser.add_argument("--i_testset", type=int, default=5000,
                         help='frequency of testset saving')
@@ -706,7 +715,7 @@ def train():
             file.write(open(args.config, 'r').read())
 
     # Start a new run to track this script
-    wandb.init(
+    run = wandb.init(
         # Set the project where this run will be logged
         project=f'{args.wandbproject}',
         entity=f'{args.wandbentity}',
@@ -740,8 +749,12 @@ def train():
         os.makedirs(testsavedir, exist_ok=True)
         print('test poses shape', render_poses.shape)
 
-        rgbs, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test,
-                              gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
+        rgbs, _ = render_path(
+            render_poses, hwf, args.chunk, render_kwargs_test,
+            gt_imgs=images, 
+            savedir=testsavedir, 
+            render_factor=args.render_factor
+        )
         print('Done rendering', testsavedir)
         imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'),
                          to8b(rgbs), fps=30, quality=8)
@@ -750,8 +763,11 @@ def train():
     # Create optimizer
     lrate = args.lrate
     if args.lrate_decay > 0:
-        lrate = tf.keras.optimizers.schedules.ExponentialDecay(lrate,
-                                                               decay_steps=args.lrate_decay * 1000, decay_rate=0.1)
+        lrate = tf.keras.optimizers.schedules.ExponentialDecay(
+            lrate,
+            decay_steps=args.lrate_decay * 1000, 
+            decay_rate=0.1
+        )
     optimizer = tf.keras.optimizers.Adam(lrate)
     models['optimizer'] = optimizer
 
@@ -779,8 +795,7 @@ def train():
         rays_rgb = np.concatenate([rays, images[:, None, ...]], 1)
         # [N, H, W, ro+rd+rgb, 3]
         rays_rgb = np.transpose(rays_rgb, [0, 2, 3, 1, 4])
-        rays_rgb = np.stack([rays_rgb[i]
-                             for i in i_train], axis=0)  # train images only
+        rays_rgb = np.stack([rays_rgb[i] for i in i_train], axis=0)  # train images only
         # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = np.reshape(rays_rgb, [-1, 3, 3])
         rays_rgb = rays_rgb.astype(np.float32)
@@ -831,7 +846,7 @@ def train():
                     dW = int(W//2 * args.precrop_frac)
                     coords = tf.stack(tf.meshgrid(
                         tf.range(H//2 - dH, H//2 + dH), 
-                        tf.range(W//2 - dW, W//2 + dW), 
+                        tf.range(W//2 - dW, W//2 + dW),
                         indexing='ij'), -1)
                     if i < 10:
                         print('precrop', dH, dW, coords[0,0], coords[-1,-1])
@@ -852,8 +867,12 @@ def train():
             
             # Make predictions for color, disparity, accumulated opacity.
             rgb, disp, acc, extras = render(
-                H, W, focal, chunk=args.chunk, rays=batch_rays,
-                verbose=i < 10, retraw=True, **render_kwargs_train)
+                H, W, focal, 
+                chunk=args.chunk, 
+                rays=batch_rays,
+                verbose=i < 10, 
+                retraw=True, **render_kwargs_train
+            )
             
             # Compute MSE loss between predicted and true RGB.
             img_loss = img2mse(rgb, target_s)
@@ -874,15 +893,16 @@ def train():
         dt = time.time()-time0
         
         # Rest is logging
-        def save_weights(net, prefix, i):
-            path = os.path.join(
-                basedir, expname, '{}_{:06d}.npy'.format(prefix, i))
-            np.save(path, net.get_weights())
-            print('saved weights at', path)
-
         if i % args.i_weights == 0:
-            for k in models:
-                save_weights(models[k], k, i)
+            for key in models:
+                if len(models) == 2 and key =='model':
+                    key = 'model_coarse'
+                modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
+                np.save(modelbase, models[key].get_weights())
+                print('saved weights at', modelbase)
+                artifact = wandb.Artifact(key, type='model')
+                artifact.add_file(modelbase)
+                run.log_artifact(artifact)
 
         if i % args.i_video == 0 and i > 0:
             rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
@@ -909,9 +929,11 @@ def train():
                 basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', poses[i_test].shape)
-            render_path(poses[i_test], hwf, args.chunk, render_kwargs_test,
-                        gt_imgs=images[i_test], 
-                        savedir=testsavedir)
+            render_path(
+                poses[i_test], hwf, args.chunk, render_kwargs_test,
+                gt_imgs=images[i_test], 
+                savedir=testsavedir
+            )
             print('Saved test set')
 
         if i % args.i_print == 0 or i < 10:
@@ -935,8 +957,12 @@ def train():
             target = images[img_i]
             pose = poses[img_i, :3, :4]
 
-            rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose,
-                                            **render_kwargs_test)
+            rgb, disp, acc, extras = render(
+                H, W, focal, 
+                chunk=args.chunk, 
+                c2w=pose, 
+                **render_kwargs_test
+            )
 
             psnr = mse2psnr(img2mse(rgb, target))
             
