@@ -738,13 +738,13 @@ def preprocessing(args):
 
 def main():
 
+    parser = config_parser()
+    args = parser.parse_args()
+
     if args.random_seed is not None:
         print('Fixing random seed', args.random_seed)
         np.random.seed(args.random_seed)
         tf.compat.v1.set_random_seed(args.random_seed)
-
-    parser = config_parser()
-    args = parser.parse_args()
 
     images, poses, near, far, H, W, focal, i_train, i_val, i_test, artifact_preprocessing = preprocessing(args=args)
 
