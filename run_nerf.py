@@ -956,12 +956,14 @@ def main():
         # Rest is logging
         if i % args.i_weights == 0:
             for key in models:
-                if ('model_fine' in models.keys()) and key =='model':
-                    key = 'model_coarse'
                 modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
                 np.save(modelbase, models[key].get_weights())
                 print('saved weights at', modelbase)
-                artifact_model = wandb.Artifact(f'{key}_{i:06d}', type='model')
+                if ('model_fine' in models.keys()) and key =='model':
+                    name = 'model_coarse'
+                else:
+                    name = key
+                artifact_model = wandb.Artifact(f'{name}_{i:06d}', type='model')
                 artifact_model.add_file(modelbase)
                 run_train.log_artifact(artifact_model)
                 wandb_artifacts['model'] = artifact_model
