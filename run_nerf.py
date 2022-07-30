@@ -881,7 +881,7 @@ def main():
         os.path.join(basedir, 'summaries', expname))
     writer.set_as_default()
 
-    for i in range(start, N_iters):
+    for i in range(start, N_iters+1):
         
         time0 = time.time()
 
@@ -959,7 +959,7 @@ def main():
         dt = time.time()-time0
         
         # Rest is logging
-        if i % args.i_weights == 0:
+        if i % args.i_weights == 0 and i > 0:
             for key in models:
                 modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
                 np.save(modelbase, models[key].get_weights())
