@@ -18,6 +18,8 @@ import wandb
 tf.compat.v1.enable_eager_execution()
 
 
+wandb_artifacts = {}
+
 def batchify(fn, chunk):
     """Constructs a version of 'fn' that applies to smaller batches."""
     if chunk is None:
@@ -607,6 +609,7 @@ def preprocessing(args):
         )
         artifact_dataset.add_dir(args.datadir)
         remote_artifact = run_load.log_artifact(artifact_dataset)
+        wandb_artifacts['dataset'] = artifact_dataset
         remote_artifact.wait()
         run_load.finish()
 
@@ -732,6 +735,7 @@ def preprocessing(args):
     table = wandb.Table(data=table_data, columns=table_columns)
     artifact_preprocessing.add(table, "preprocessing_result")
     run_preprocess.log_artifact(artifact_preprocessing)
+    wandb_artifacts['preprocessing'] = artifact_preprocessing
     artifact_preprocessing.wait()
     run_preprocess.finish()
 
@@ -748,7 +752,7 @@ def main():
         np.random.seed(args.random_seed)
         tf.compat.v1.set_random_seed(args.random_seed)
 
-    images, poses, near, far, H, W, focal, i_train, i_val, i_test, artifact_preprocessing = preprocessing(args=args)
+    images, poses, near, far, H, W, focal, i_train, i_val, i_test = preprocessing(args=args)
 
     if args.render_test:
         render_poses = np.array(poses[i_test])
@@ -775,7 +779,7 @@ def main():
         name=f'{args.expname}',
         job_type='train'
     )
-    run_train.use_artifact(artifact_preprocessing)
+    run_train.use_artifact(wandb_artifacts['preprocessing'])
     wandb.config.update(args)
 
     # Create nerf model
@@ -956,9 +960,10 @@ def main():
                 modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
                 np.save(modelbase, models[key].get_weights())
                 print('saved weights at', modelbase)
-                artifact = wandb.Artifact(key, type='model')
-                artifact.add_file(modelbase)
-                run_train.log_artifact(artifact)
+                artifact_model = wandb.Artifact(key, type='model')
+                artifact_model.add_file(modelbase)
+                run_train.log_artifact(artifact_model)
+                wandb_artifacts['model'] = artifact_model
 
         if i % args.i_video == 0 and i > 0:
             rgbs, disps = render_path(render_poses, [H, W, focal], args.chunk, render_kwargs_test)
