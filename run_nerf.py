@@ -590,31 +590,37 @@ def config_parser():
     return parser
 
 
-def train():
-
-    parser = config_parser()
-    args = parser.parse_args()
-    
-    if args.random_seed is not None:
-        print('Fixing random seed', args.random_seed)
-        np.random.seed(args.random_seed)
-        tf.compat.v1.set_random_seed(args.random_seed)
+def preprocessing(args):
 
     # Load data
     if args.dataset_type == 'llff':
         # Start a new run to track this script
-        run = wandb.init(
+        run_load = wandb.init(
             project=f'{args.wandbproject}',
             entity=f'{args.wandbentity}',
             name=f'{args.expname}',
             job_type='load_llff_dataset',
         )
-        artifact = wandb.Artifact(
+        artifact_dataset = wandb.Artifact(
             f'{os.path.basename(args.datadir)}-dataset',
             type='dataset'
         )
-        artifact.add_dir(args.datadir)
-        remote_artifact = run.use_artifact(artifact)
+        artifact_dataset.add_dir(args.datadir)
+        remote_artifact = run_load.log_artifact(artifact_dataset)
+        run_load.finish()
+
+        # Start a new run to track this script
+        run_preprocess = wandb.init(
+            project=f'{args.wandbproject}',
+            entity=f'{args.wandbentity}',
+            name=f'{args.expname}',
+            job_type='preprocess_llff_dataset',
+        )
+        artifact_preprocessing = wandb.Artifact(
+            f'{os.path.basename(args.datadir)}-preprocess',
+            type='preprocessing'
+        )
+        remote_artifact = run_load.use_artifact(artifact_dataset)
         wandb_datadir = remote_artifact.download(root=None)
         images, poses, bds, render_poses, i_test = load_llff_data(
             wandb_datadir, 
@@ -636,7 +642,6 @@ def train():
         i_val = i_test
         i_train = np.array([i for i in np.arange(int(images.shape[0])) if
                             (i not in i_test and i not in i_val)])
-
         print('DEFINING BOUNDS')
         if args.no_ndc:
             near = tf.reduce_min(bds) * .9
@@ -645,19 +650,6 @@ def train():
             near = 0.
             far = 1.
         print('NEAR FAR', near, far)
-        wandb.config.update({
-            'dataset_type':args.dataset_type,
-            'testskip':args.testskip,
-            'factor':args.factor,
-            'no_ndc':args.no_ndc,
-            'lindisp':args.lindisp,
-            'spherify':args.spherify,
-            'llffhold':args.llffhold,
-            'near':near,
-            'far':far,
-        })
-        # Add a file to the artifact's contents
-        run.finish()
 
     elif args.dataset_type == 'blender':
         images, poses, render_poses, hwf, i_split = load_blender_data(
@@ -689,13 +681,72 @@ def train():
         far = hemi_R+1.
 
     else:
-        print('Unknown dataset type', args.dataset_type, 'exiting')
-        return
+        raise ValueError(f'Unknown dataset type {args.dataset_type} exiting')
 
     # Cast intrinsics to right types
     H, W, focal = hwf
     H, W = int(H), int(W)
-    hwf = [H, W, focal]
+
+    wandb.config.update({
+        'dataset_type':args.dataset_type,
+        'testskip':args.testskip,
+        'factor':args.factor,
+        'no_ndc':args.no_ndc,
+        'lindisp':args.lindisp,
+        'spherify':args.spherify,
+        'llffhold':args.llffhold,
+        'near':near,
+        'far':far,
+    })
+    table_data = []
+    table_columns = ['image', 'split', 'H', 'W', 'focal', 'pose']
+    for i_split in [i_train, i_val, i_test]:
+        if i_split is i_train:
+            s = 'train'
+        elif i_split is i_val:
+            s = 'val'
+        elif i_split is i_test:
+            s = 'test'
+        else:
+            raise ValueError()
+        for i in i_split:
+            for column in table_columns:
+                row = []
+                if column == 'image':
+                    row.append(wandb.Image(images[i]), caption=f'idx: {i}')
+                elif column == 'split':
+                    row.append(s)
+                elif column == 'H':
+                    row.append(H)
+                elif column == 'W':
+                    row.append(W)
+                elif column == 'focal':
+                    row.append(focal)
+                elif column == 'pose':
+                    row.append(poses[i])
+                else:
+                    raise ValueError()
+            table_data.append(row)
+    # create a wandb.Table() with corresponding columns
+    table = wandb.Table(data=table_data, columns=table_columns)
+    artifact_preprocessing.add_table(table)
+    remote_artifact = run_preprocess.log_artifact(artifact_preprocessing)
+    run_preprocess.finish()
+
+    return images, poses, near, far, H, W, focal, i_train, i_val, i_test
+
+
+def main():
+
+    if args.random_seed is not None:
+        print('Fixing random seed', args.random_seed)
+        np.random.seed(args.random_seed)
+        tf.compat.v1.set_random_seed(args.random_seed)
+
+    parser = config_parser()
+    args = parser.parse_args()
+
+    images, poses, near, far, H, W, focal, i_train, i_val, i_test, artifact_preprocessing = preprocessing(args=args)
 
     if args.render_test:
         render_poses = np.array(poses[i_test])
@@ -715,13 +766,14 @@ def train():
             file.write(open(args.config, 'r').read())
 
     # Start a new run to track this script
-    run = wandb.init(
+    run_train = wandb.init(
         # Set the project where this run will be logged
         project=f'{args.wandbproject}',
         entity=f'{args.wandbentity}',
         name=f'{args.expname}',
         job_type='train'
     )
+    run_train.use_artifact(artifact_preprocessing)
     wandb.config.update(args)
 
     # Create nerf model
@@ -750,14 +802,16 @@ def train():
         print('test poses shape', render_poses.shape)
 
         rgbs, _ = render_path(
-            render_poses, hwf, args.chunk, render_kwargs_test,
+            render_poses, [H, W, focal], args.chunk, render_kwargs_test,
             gt_imgs=images, 
             savedir=testsavedir, 
             render_factor=args.render_factor
         )
         print('Done rendering', testsavedir)
-        imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'),
-                         to8b(rgbs), fps=30, quality=8)
+        imageio.mimwrite(
+            os.path.join(testsavedir, 'video.mp4'),
+            to8b(rgbs), fps=30, quality=8
+        )
         return
 
     # Create optimizer
@@ -895,17 +949,17 @@ def train():
         # Rest is logging
         if i % args.i_weights == 0:
             for key in models:
-                if len(models) == 2 and key =='model':
+                if ('fine' in models.keys()) and key =='model':
                     key = 'model_coarse'
                 modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
                 np.save(modelbase, models[key].get_weights())
                 print('saved weights at', modelbase)
                 artifact = wandb.Artifact(key, type='model')
                 artifact.add_file(modelbase)
-                run.log_artifact(artifact)
+                run_train.log_artifact(artifact)
 
         if i % args.i_video == 0 and i > 0:
-            rgbs, disps = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
+            rgbs, disps = render_path(render_poses, [H, W, focal], args.chunk, render_kwargs_test)
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
@@ -917,7 +971,7 @@ def train():
 
             if args.use_viewdirs:
                 render_kwargs_test['c2w_staticcam'] = render_poses[0][:3, :4]
-                rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
+                rgbs_still, _ = render_path(render_poses, [H, W, focal], args.chunk, render_kwargs_test)
                 render_kwargs_test['c2w_staticcam'] = None
                 imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
                 wandb.log({
@@ -930,7 +984,7 @@ def train():
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', poses[i_test].shape)
             render_path(
-                poses[i_test], hwf, args.chunk, render_kwargs_test,
+                poses[i_test], [H, W, focal], args.chunk, render_kwargs_test,
                 gt_imgs=images[i_test], 
                 savedir=testsavedir
             )
@@ -989,4 +1043,4 @@ def train():
     wandb.finish()
 
 if __name__ == '__main__':
-    train()
+    main()
