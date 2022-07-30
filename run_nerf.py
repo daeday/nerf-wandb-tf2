@@ -711,8 +711,8 @@ def preprocessing(args):
         else:
             raise ValueError()
         for i in i_split:
+            row = []
             for column in table_columns:
-                row = []
                 if column == 'image':
                     row.append(wandb.Image(images[i], caption=f'idx: {i}'))
                 elif column == 'split':
