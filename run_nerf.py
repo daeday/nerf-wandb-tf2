@@ -620,7 +620,7 @@ def preprocessing(args):
             f'{os.path.basename(args.datadir)}-preprocess',
             type='preprocessing'
         )
-        remote_artifact = run_load.use_artifact(artifact_dataset)
+        remote_artifact = run_preprocess.use_artifact(artifact_dataset)
         wandb_datadir = remote_artifact.download(root=None)
         images, poses, bds, render_poses, i_test = load_llff_data(
             wandb_datadir, 
