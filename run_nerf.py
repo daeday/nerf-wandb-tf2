@@ -676,8 +676,7 @@ def preprocessing(args):
                                                                  basedir=args.datadir,
                                                                  testskip=args.testskip)
 
-        print('Loaded deepvoxels', images.shape,
-              render_poses.shape, hwf, args.datadir)
+        print('Loaded deepvoxels', images.shape, render_poses.shape, hwf, args.datadir)
         i_train, i_val, i_test = i_split
 
         hemi_R = np.mean(np.linalg.norm(poses[:, :3, -1], axis=-1))
@@ -703,7 +702,7 @@ def preprocessing(args):
         'far':far,
     })
     table_data = []
-    table_columns = ['image', 'split', 'H', 'W', 'focal', 'pose']
+    table_columns = ['image', 'split', 'H', 'W', 'focal', 'pose', 'render_pose']
     for i_split in [i_train, i_val, i_test]:
         if i_split is i_train:
             s = 'train'
@@ -727,7 +726,9 @@ def preprocessing(args):
                 elif column == 'focal':
                     row.append(focal)
                 elif column == 'pose':
-                    row.append(poses[i])
+                    row.append(poses[i].tolist())
+                elif column == 'render_pose':
+                    row.append(render_poses[i].tolist())
                 else:
                     raise ValueError()
             table_data.append(row)
@@ -739,7 +740,7 @@ def preprocessing(args):
     artifact_preprocessing.wait()
     run_preprocess.finish()
 
-    return images, poses, near, far, H, W, focal, i_train, i_val, i_test
+    return images, poses, render_poses, near, far, H, W, focal, i_train, i_val, i_test
 
 
 def main():
@@ -752,7 +753,7 @@ def main():
         np.random.seed(args.random_seed)
         tf.compat.v1.set_random_seed(args.random_seed)
 
-    images, poses, near, far, H, W, focal, i_train, i_val, i_test = preprocessing(args=args)
+    images, poses, render_poses, near, far, H, W, focal, i_train, i_val, i_test = preprocessing(args=args)
 
     if args.render_test:
         render_poses = np.array(poses[i_test])
