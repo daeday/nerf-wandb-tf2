@@ -703,15 +703,23 @@ def preprocessing(args):
     })
     table_data = []
     table_columns = ['image', 'split', 'H', 'W', 'focal', 'pose', 'render_pose']
-    for i_split in [i_train, i_val, i_test]:
+    i_split_li = [i_train, i_val, i_test]
+    print('TRAIN views are', i_train)
+    print('TEST views are', i_test)
+    print('VAL views are', i_val)
+    if i_val is i_test:
+        # If i_test is just reference of i_val
+        i_split_li = i_split_li[:-1]
+    for i_split in i_split_li:
         if i_split is i_train:
             s = 'train'
-        elif i_split is i_val:
-            s = 'val'
-        elif i_split is i_test:
-            s = 'test'
         else:
-            raise ValueError()
+            if i_split is i_val:
+                s = 'val'
+            if i_split is i_test:
+                s = 'test'
+            if (i_split is i_val) and (i_split is i_test):
+                s = 'val/test'
         for i in i_split:
             row = []
             for column in table_columns:
@@ -867,9 +875,6 @@ def main():
 
     N_iters = args.maxiter
     print('Begin')
-    print('TRAIN views are', i_train)
-    print('TEST views are', i_test)
-    print('VAL views are', i_val)
 
     # Summary writers
     writer = tf.contrib.summary.create_file_writer(
