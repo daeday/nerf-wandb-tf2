@@ -702,7 +702,7 @@ def preprocessing(args):
         'far':far,
     })
     table_data = []
-    table_columns = ['image', 'split', 'H', 'W', 'focal', 'pose', 'render_pose']
+    table_columns = ['image', 'split', 'H', 'W', 'focal', 'pose']
     i_split_li = [i_train, i_val, i_test]
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -735,8 +735,6 @@ def preprocessing(args):
                     row.append(focal)
                 elif column == 'pose':
                     row.append(f'{poses[i].tolist()}')
-                elif column == 'render_pose':
-                    row.append(f'{render_poses[i].tolist()}')
                 else:
                     raise ValueError()
             table_data.append(row)
