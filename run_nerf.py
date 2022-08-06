@@ -962,14 +962,15 @@ def main():
                 modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
                 np.save(modelbase, models[key].get_weights())
                 print('saved weights at', modelbase)
-                if ('model_fine' in models.keys()) and key =='model':
-                    name = 'model_coarse'
-                else:
-                    name = key
-                artifact_model = wandb.Artifact(f'{name}_{i:06d}', type='model')
-                artifact_model.add_file(modelbase)
-                run_train.log_artifact(artifact_model)
-                wandb_artifacts['model'] = artifact_model
+                if i == N_iters:
+                    if ('model_fine' in models.keys()) and key =='model':
+                        name = 'model_coarse'
+                    else:
+                        name = key
+                    artifact_model = wandb.Artifact(f'{name}_{i:06d}', type='model')
+                    artifact_model.add_file(modelbase)
+                    run_train.log_artifact(artifact_model)
+                    wandb_artifacts['model'] = artifact_model
 
         if i % args.i_video == 0 and i > 0:
             rgbs, disps = render_path(render_poses, [H, W, focal], args.chunk, render_kwargs_test)
