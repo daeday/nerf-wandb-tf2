@@ -539,7 +539,7 @@ def config_parser():
                         help='log2 of max freq for positional encoding (3D location)')
     parser.add_argument("--multires_views", type=int, default=4,
                         help='log2 of max freq for positional encoding (2D direction)')
-    parser.add_argument("--raw_noise_std", type=float, default=0.,
+    parser.add_argument("--raw_noise_std", type=float, default=1.0,
                         help='std dev of noise added to regularize sigma_a output, 1e0 recommended')
 
     parser.add_argument("--render_only", action='store_true',
