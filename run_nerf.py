@@ -1012,7 +1012,7 @@ def main():
                 f'loss' :loss.numpy(),
                 f'iter_time' :dt
             }, step=int(i))
-            with tf.tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_print, 0)):
+            with tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_print, 0)):
                 tf.summary.scalar('loss', loss, step=int(i))
                 tf.summary.scalar('psnr', psnr, step=int(i))
                 tf.summary.histogram('tran', trans, step=int(i))
