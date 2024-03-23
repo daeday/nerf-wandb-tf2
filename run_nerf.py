@@ -960,7 +960,8 @@ def main():
         if i % args.i_weights == 0 and i > 0:
             for key in models:
                 modelbase =  os.path.join(basedir, expname, f'{key}_{i:06d}.npy')
-                np.save(modelbase, models[key].get_weights())
+                model_weights = np.array(models[key].get_weights())
+                np.save(modelbase, model_weights)
                 print('saved weights at', modelbase)
                 if i == N_iters:
                     if ('model_fine' in models.keys()) and key =='model':
