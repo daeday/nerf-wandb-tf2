@@ -1016,7 +1016,7 @@ def main():
                 f'loss' :loss.numpy(),
                 f'iter_time' :dt
             }, step=int(i))
-            with tf.tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_print, 0)):
+            with tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_print, 0)):
                 tf.summary.scalar('loss', loss, step=int(i))
                 tf.summary.scalar('psnr', psnr, step=int(i))
                 tf.summary.histogram('tran', trans, step=int(i))
@@ -1044,7 +1044,7 @@ def main():
                 os.makedirs(testimgdir, exist_ok=True)
             imageio.imwrite(os.path.join(testimgdir, '{:06d}.png'.format(i)), to8b(rgb))
 
-            with tf.tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_img, 0)):
+            with tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_img, 0)):
                 tf.summary.image('rgb', to8b(rgb)[tf.newaxis], step=int(i))
                 tf.summary.image('disp', disp[tf.newaxis, ..., tf.newaxis], step=int(i))
                 tf.summary.image('acc', acc[tf.newaxis, ..., tf.newaxis], step=int(i))
@@ -1052,7 +1052,7 @@ def main():
                 tf.summary.image('rgb_holdout', target[tf.newaxis], step=int(i))
 
             if args.N_importance > 0:
-                with tf.tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_img, 0)):
+                with tf.summary.record_if(lambda: tf.math.equal(int(i) % args.i_img, 0)):
                     tf.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis], step=int(i))
                     tf.summary.image('disp0', extras['disp0'][tf.newaxis, ..., tf.newaxis], step=int(i))
                     tf.summary.image('z_std', extras['z_std'][tf.newaxis, ..., tf.newaxis], step=int(i))
